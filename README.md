@@ -1,97 +1,77 @@
-# CS2 Aimbot
+# CS2 Aimbot — y018 client
 
-A basic, non-bypassing aimbot for Counter-Strike 2 (CS2) built for educational and personal use.
+A basic, non-bypassing cheat for Counter-Strike 2 (CS2) featuring ESP and a smoothing aimbot, built for educational and personal use.
 
 ## ⚠️ Disclaimer
 
-This project is intended for **educational purposes only**. Use of cheating software in online multiplayer games violates Valve's [Steam Subscriber Agreement](https://store.steampowered.com/subscriber_agreement/) and CS2's terms of service. This aimbot is **not designed to bypass VAC (Valve Anti-Cheat)** or any other anti-cheat system, and using it on official servers will likely result in a permanent ban.
+This project is intended for **educational purposes only**. Use of cheating software in online multiplayer games violates Valve's [Steam Subscriber Agreement](https://store.steampowered.com/subscriber_agreement/) and CS2's terms of service. This tool is **not designed to bypass VAC (Valve Anti-Cheat)** or any other anti-cheat system, and using it on official servers will likely result in a permanent ban.
 
 **Use only in offline mode, private servers, or LAN environments.**
 
 ---
 
-## What Is This?
-
-This is a simple aimbot for CS2 that automatically assists with aiming at enemy players. It is non-bypassing, meaning:
-
-- It makes **no attempt** to evade or circumvent VAC or any other anti-cheat software.
-- It is **not designed for use on official matchmaking servers**.
-- It operates by reading game memory to locate enemy positions and adjusting mouse input accordingly.
-
----
-
 ## Features
 
-- Basic aim assistance toward the nearest visible enemy
-- Configurable field of view (FOV) radius
-- Configurable smoothing to control how quickly the aim snaps
-- Toggle on/off keybind support
-- Head or body targeting options
+### ESP
+- Player boxes and lines
+- Skeleton / bone rendering with adjustable thickness
+- Player name tags
+- Health bars
+- Configurable team and enemy colors
+
+### Smoothing Aimbot
+- Smooth, natural-feeling aim assistance — no snapping
+- Configurable FOV radius (pixel-based)
+- Adjustable smoothing factor (lower = smoother)
+- Target lock with hysteresis to prevent constant target switching
+- Optional teammate aim
+- Visual FOV circle overlay
+
+### UI
+- Purple-themed ImGui overlay
+- **Right Shift** — show menu and tab out of the game
+- **Escape** — hide menu and return to game
+- Settings saved automatically to `y018_settings.json`
+- Splash screen on launch
 
 ---
 
-## Requirements
+## Installation & Usage
 
-- Windows 10/11
-- Counter-Strike 2 (Steam)
-- [List any runtime dependencies here, e.g. Python 3.x, .NET, etc.]
-
----
-
-## Installation
-
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/yourusername/cs2-aimbot.git
-   cd cs2-aimbot
-   ```
-
-2. Install dependencies:
-   ```bash
-   [insert install command here]
-   ```
-
-3. Run the program:
-   ```bash
-   [insert run command here]
-   ```
+1. Head to the [**Releases**](../../releases) tab
+2. Download the latest `.exe` file
+3. Run the `.exe` as Administrator
+4. Launch CS2
+5. Press **Right Shift** in-game to open the menu
 
 ---
 
 ## Configuration
 
-Edit the `config.json` (or equivalent config file) to adjust settings:
+All settings are adjustable from the in-game overlay and saved automatically. Key binds:
 
-| Setting | Description | Default |
-|---|---|---|
-| `fov` | Aim assist radius in degrees | `10` |
-| `smoothing` | Aim movement smoothing factor | `5` |
-| `target_bone` | Target bone (`head` or `body`) | `head` |
-| `toggle_key` | Key to enable/disable aimbot | `Insert` |
+| Key | Action |
+|---|---|
+| Right Shift | Show menu / tab out of game |
+| Escape | Hide menu / return to game |
+| Mouse Button 5 | Activate aimbot |
 
 ---
 
 ## How It Works
 
-The aimbot reads CS2's process memory to retrieve the positions of enemy players in the game world. It then projects those 3D world coordinates onto the 2D screen and moves the mouse toward the target using simulated input — no game file modification is involved.
+The tool reads CS2's process memory to get enemy player positions and projects them onto the screen for ESP. The aimbot calculates the angle to the target's head and smoothly interpolates the view angle over time — no raw snapping — using CS2's view angle write offset.
 
 ---
 
 ## Legal & Ethical Notice
 
 - Do **not** use this on Valve official servers, FACEIT, ESEA, or any other competitive platform.
-- The developer(s) of this project are **not responsible** for any bans, account suspensions, or other consequences resulting from misuse.
+- The developer(s) are **not responsible** for any bans, account suspensions, or other consequences from misuse.
 - This project exists purely for learning about game memory reading, input simulation, and software development.
-
----
-
-## Contributing
-
-Pull requests are welcome for bug fixes or improvements. Please open an issue first to discuss any major changes.
 
 ---
 
 ## License
 
-[MIT License](LICENSE)
-Readme written by Claude
+[MIT License](LICENSE) — see the LICENSE file for details.
