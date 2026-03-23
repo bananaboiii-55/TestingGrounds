@@ -28,6 +28,7 @@ namespace WallhackandAimbotCombinedTest
         public int health { get; set; }
         public uint lifeState { get; set; }
         public bool spotted { get; set; }
+        public bool visible { get; set; }
     }
 
     public enum BoneIds
