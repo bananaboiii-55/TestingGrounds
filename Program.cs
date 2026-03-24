@@ -9,7 +9,10 @@ using WallhackandAimbotCombinedTest;
 
 class Program
 {
-    const int HOTKEY = 0x06; // Mouse button 5
+    const int HOTKEY = 0x06;  // Mouse button 5
+    const int VK_SPACE = 0x20;
+    const int VK_A = 0x41;
+    const int VK_D = 0x44;
 
     static Swed swed = new Swed("cs2");
     static IntPtr lockedAimPawn = IntPtr.Zero;
@@ -29,10 +32,16 @@ class Program
         List<Entity> entities = new List<Entity>();
         Entity localPlayer = new Entity();
 
+        // ── Offsets ───────────────────────────────────────────────────────
         int dwEntityList = 0x24AF268;
         int dwViewMatrix = 0x230FF20;
         int dwLocalPlayerPawn = 0x2069B50;
         int dwViewAngles = 0x231A648;
+
+        // dwForceJump — writing 65537 here triggers a jump server-side.
+        // This is the correct way to bhop externally in CS2.
+        int dwForceJump = 0x1850DF0;
+
         int m_vOldOrigin = 0x1588;
         int m_iTeamNum = 0x3F3;
         int m_lifeState = 0x35C;
@@ -42,6 +51,20 @@ class Program
         int m_pGameSceneNode = 0x338;
         int m_iHealth = 0x354;
         int m_iszPlayerName = 0x6F8;
+
+        // m_fFlags: bit 0 = FL_ONGROUND
+        int m_fFlags = 0x3F8;
+
+        // m_entitySpottedState + m_bSpottedByMask
+        // spotted mask is a uint — if any bit is set the local player has
+        // spotted this entity (bit 0 = player slot 0, etc.)
+        int m_entitySpottedState = 0x1638;
+        int m_bSpottedByMask = 0xC;   // offset inside EntitySpottedState_t
+
+        // m_vecVelocity — needed for air strafe magnitude check
+        int m_vecVelocity = 0x118;
+
+        bool bhopWasOnGround = false;
 
         while (true)
         {
@@ -65,6 +88,73 @@ class Program
             float[] viewMatrix = swed.ReadMatrix(client + dwViewMatrix);
             const float maxEspDistance = 6000f;
 
+            // ── Bunnyhop ──────────────────────────────────────────────────
+            // Write dwForceJump = 65537 the moment we land while space held.
+            // 65537 is the value CS2 expects to register a jump via the
+            // force-jump ConVar — much more reliable than SendInput since
+            // CS2 has its own input capture when fullscreened.
+            if (renderer.bhopEnabled && (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0)
+            {
+                int flags = swed.ReadInt(localPawn, m_fFlags);
+                bool onGround = (flags & 1) != 0;
+
+                if (onGround && !bhopWasOnGround)
+                {
+                    // Trigger a jump
+                    swed.WriteInt(client, dwForceJump, 65537);
+                }
+                else if (!onGround)
+                {
+                    // Reset the force jump value while airborne
+                    swed.WriteInt(client, dwForceJump, 256);
+                }
+
+                bhopWasOnGround = onGround;
+            }
+            else
+            {
+                bhopWasOnGround = false;
+            }
+
+            // ── Air strafe ────────────────────────────────────────────────
+            // Auto-strafes left/right while airborne to gain speed.
+            // Reads current velocity, determines which direction adds speed
+            // toward the movement direction, then holds that key.
+            // Only fires when not grounded and strafe is enabled.
+            if (renderer.airStrafeEnabled)
+            {
+                int flags = swed.ReadInt(localPawn, m_fFlags);
+                bool onGround = (flags & 1) != 0;
+
+                if (!onGround)
+                {
+                    Vector3 vel = swed.ReadVec(localPawn, m_vecVelocity);
+                    Vector3 angles = swed.ReadVec(client, dwViewAngles);
+
+                    float yawRad = angles.Y * MathF.PI / 180f;
+
+                    // Forward/right unit vectors from current yaw
+                    float fwdX = MathF.Cos(yawRad);
+                    float fwdY = MathF.Sin(yawRad);
+                    float rightX = fwdY;
+                    float rightY = -fwdX;
+
+                    // Dot velocity against right vector to decide strafe direction
+                    float rightDot = vel.X * rightX + vel.Y * rightY;
+
+                    // Strafe toward whichever side has less velocity build-up
+                    // (opposite of current rightward velocity = adding speed)
+                    bool strafeRight = rightDot < 0;
+
+                    // Write a yaw nudge in the strafe direction to help
+                    // the strafe gain speed. Very small to not be jarring.
+                    float nudge = renderer.airStrafeStrength * (strafeRight ? 1f : -1f);
+                    Vector3 newAngles = new Vector3(angles.X, angles.Y + nudge, angles.Z);
+                    swed.WriteVec(client, dwViewAngles, newAngles);
+                }
+            }
+
+            // ── Entity scan ───────────────────────────────────────────────
             for (int i = 0; i < 64; i++)
             {
                 IntPtr controller = swed.ReadPointer(listEntry, i * 0x70);
@@ -90,12 +180,19 @@ class Program
                 if (sceneNode == IntPtr.Zero) continue;
 
                 IntPtr boneMatrix = Calculate.ResolveBoneArray(sceneNode, swed, m_modelState);
-
                 Vector3 origin = swed.ReadVec(pawn, m_vOldOrigin);
                 if (origin.LengthSquared() < 1f) continue;
 
                 Vector3 viewOff = swed.ReadVec(pawn, m_vecViewOffset);
                 Vector3 eye = origin + viewOff;
+
+                // ── Spotted check using entity's own spotted state ────────
+                // m_bSpottedByMask is a bitmask — any non-zero value means
+                // at least one player has spotted this entity. Since we only
+                // care about local player visibility we check bit 0 and bit 1
+                // (slot-based), but any non-zero is a good enough signal.
+                uint spottedMask = (uint)swed.ReadInt(pawn, m_entitySpottedState + m_bSpottedByMask);
+                bool spotted = spottedMask != 0;
 
                 Entity entity = new Entity
                 {
@@ -107,7 +204,10 @@ class Program
                     view = viewOff,
                     distance = Vector3.Distance(origin, localPlayer.position),
                     name = swed.ReadString(controller, m_iszPlayerName, 32).Split("\0")[0],
-                    bones = Calculate.ReadBones(boneMatrix, swed)
+                    bones = Calculate.ReadBones(boneMatrix, swed),
+                    spotted = spotted,
+                    // visible falls back to spotted — uses the game's own logic
+                    visible = spotted,
                 };
 
                 if (entity.distance > maxEspDistance) continue;
@@ -134,19 +234,14 @@ class Program
                     entity.head2d,
                     new Vector2(screenSize.X / 2, screenSize.Y / 2));
 
-                // Visible = head projects onto the screen with valid coordinates
-                entity.visible = entity.head2d.X > 0 && entity.head2d.Y > 0
-                               && entity.head2d.X < screenSize.X
-                               && entity.head2d.Y < screenSize.Y;
-
                 entities.Add(entity);
             }
 
-            // Sort by chosen priority mode
             entities = renderer.aimTargetClosestDistance
                 ? entities.OrderBy(e => e.distance).ToList()
                 : entities.OrderBy(e => e.pixelDistance).ToList();
 
+            // ── Aimbot ────────────────────────────────────────────────────
             bool aimKey = GetAsyncKeyState(HOTKEY) < 0 && renderer.aimbot;
 
             if (!aimKey)
@@ -155,7 +250,6 @@ class Program
             }
             else if (entities.Count > 0)
             {
-                // Filter candidates — optionally require visible
                 var inFov = entities
                     .Where(e =>
                         ((e.team & 0xFF) != (localPlayer.team & 0xFF) || renderer.aimOnTeam)
@@ -176,14 +270,14 @@ class Program
                         lockedAimPawn = closest.pawnAdress;
                     else if (renderer.aimTargetClosestDistance)
                     {
-                        if (closest.pawnAdress != lockedAimPawn
-                            && closest.distance < lockedEnt.distance - 50f)
+                        if (closest.pawnAdress != lockedAimPawn &&
+                            closest.distance < lockedEnt.distance - 50f)
                             lockedAimPawn = closest.pawnAdress;
                     }
                     else
                     {
-                        if (closest.pawnAdress != lockedAimPawn
-                            && closest.pixelDistance < lockedEnt.pixelDistance - renderer.aimSwitchHysteresis)
+                        if (closest.pawnAdress != lockedAimPawn &&
+                            closest.pixelDistance < lockedEnt.pixelDistance - renderer.aimSwitchHysteresis)
                             lockedAimPawn = closest.pawnAdress;
                     }
 
@@ -202,52 +296,42 @@ class Program
                             current = targetView;
 
                         float smooth = Math.Clamp(renderer.aimSmooth, 0.02f, 1f);
-
-                        // ── Humanisation ──────────────────────────────────
-                        // Adds per-frame noise to the smoothing factor and a
-                        // small random angular offset so the aim doesn't move
-                        // in a perfectly straight mechanical line.
-                        float humanAmount = renderer.aimHumanisation; // 0 = off, 1 = max
+                        float humanAmount = renderer.aimHumanisation;
 
                         if (humanAmount > 0f)
                         {
-                            // Jitter the smooth factor ± up to 40% of its value
-                            float smoothJitter = (float)(rng.NextDouble() * 2 - 1)
-                                               * smooth * 0.4f * humanAmount;
-                            smooth = Math.Clamp(smooth + smoothJitter, 0.02f, 1f);
+                            float dPitch = Math.Abs(NormalisePitch(targetView.X - current.X));
+                            float dYaw = Math.Abs(NormaliseYaw(targetView.Y - current.Y));
+                            float angularDist = MathF.Sqrt(dPitch * dPitch + dYaw * dYaw);
 
-                            // Random chance to slightly under-aim (miss by a hair)
-                            // Higher humanisation = more frequent small misses
-                            float missChance = humanAmount * 0.35f;
-                            if (rng.NextDouble() < missChance)
+                            if (angularDist > 0.15f)
                             {
-                                // Deflect target angles by a small random amount
-                                float maxDeflect = humanAmount * 1.8f; // degrees
-                                float dPitch = (float)(rng.NextDouble() * 2 - 1) * maxDeflect;
-                                float dYaw = (float)(rng.NextDouble() * 2 - 1) * maxDeflect;
-                                targetView = new Vector3(
-                                    targetView.X + dPitch,
-                                    targetView.Y + dYaw,
-                                    0);
-                            }
+                                float jitterRange = smooth * 0.6f * humanAmount;
+                                smooth = Math.Clamp(smooth + (float)(rng.NextDouble() * 2 - 1) * jitterRange, 0.02f, 1f);
 
-                            // Micro-speed variation — random small pause frames
-                            // simulates a human slightly lagging then correcting
-                            float pauseChance = humanAmount * 0.12f;
-                            if (rng.NextDouble() < pauseChance)
-                            {
-                                // Skip writing this frame — mimics a tiny hesitation
-                                renderer.UpdateLocalPlayer(localPlayer);
-                                renderer.UpdateEntities(entities);
-                                Thread.Sleep(8);
-                                continue;
+                                if (rng.NextDouble() < humanAmount * 0.18f)
+                                    smooth = Math.Clamp(smooth * 0.25f, 0.02f, 1f);
+
+                                if (rng.NextDouble() < humanAmount * 0.35f)
+                                {
+                                    float maxDeflect = humanAmount * 2.5f * Math.Clamp(angularDist / 10f, 0.1f, 1f);
+                                    targetView = new Vector3(
+                                        targetView.X + (float)(rng.NextDouble() * 2 - 1) * maxDeflect,
+                                        targetView.Y + (float)(rng.NextDouble() * 2 - 1) * maxDeflect, 0);
+                                }
+
+                                if (rng.NextDouble() < humanAmount * 0.12f)
+                                {
+                                    renderer.UpdateLocalPlayer(localPlayer);
+                                    renderer.UpdateEntities(entities);
+                                    Thread.Sleep(8);
+                                    continue;
+                                }
                             }
                         }
-                        // ── End humanisation ──────────────────────────────
 
                         float pitch = Calculate.LerpPitch(current.X, targetView.X, smooth);
                         float yaw = Calculate.LerpAngleDegrees(current.Y, targetView.Y, smooth);
-
                         swed.WriteVec(client, dwViewAngles, new Vector3(pitch, yaw, 0));
                     }
                 }
@@ -257,5 +341,19 @@ class Program
             renderer.UpdateEntities(entities);
             Thread.Sleep(8);
         }
+    }
+
+    static float NormalisePitch(float d)
+    {
+        while (d > 90f) d -= 180f;
+        while (d < -90f) d += 180f;
+        return d;
+    }
+
+    static float NormaliseYaw(float d)
+    {
+        while (d > 180f) d -= 360f;
+        while (d < -180f) d += 360f;
+        return d;
     }
 }

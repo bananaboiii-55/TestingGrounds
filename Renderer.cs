@@ -12,7 +12,6 @@ using ImGuiNET;
 
 namespace WallhackandAimbotCombinedTest
 {
-    // ── Settings ──────────────────────────────────────────────────────────
     public class Settings
     {
         public bool EnableESP { get; set; } = true;
@@ -39,6 +38,10 @@ namespace WallhackandAimbotCombinedTest
         public float AimSmooth { get; set; } = 0.22f;
         public float AimSwitchHysteresis { get; set; } = 42f;
         public float AimHumanisation { get; set; } = 0f;
+
+        public bool BhopEnabled { get; set; } = false;
+        public bool AirStrafeEnabled { get; set; } = false;
+        public float AirStrafeStrength { get; set; } = 0.5f;
     }
 
     public class Renderer : Overlay
@@ -61,14 +64,14 @@ namespace WallhackandAimbotCombinedTest
         private bool enableChams = false;
         private float chamsAlpha = 0.85f;
         private float chamsThickness = 12f;
+        private Vector4 chamsEnemyColor = new Vector4(0.9f, 0.15f, 0.15f, 1f);
+        private Vector4 chamsTeamColor = new Vector4(0.15f, 0.55f, 1f, 1f);
 
         // Colors
         private Vector4 enemyColor = new Vector4(1f, 0f, 0f, 1f);
         private Vector4 teamColor = new Vector4(0f, 1f, 0f, 1f);
         private Vector4 boneColor = new Vector4(1f, 1f, 1f, 1f);
         private Vector4 nameColor = new Vector4(1f, 1f, 1f, 1f);
-        private Vector4 chamsEnemyColor = new Vector4(0.9f, 0.15f, 0.15f, 1f);
-        private Vector4 chamsTeamColor = new Vector4(0.15f, 0.55f, 1f, 1f);
 
         // Aimbot
         public bool aimbot = true;
@@ -80,6 +83,11 @@ namespace WallhackandAimbotCombinedTest
         public float aimSwitchHysteresis = 42f;
         public float aimHumanisation = 0f;
         public Vector4 circleColor = new Vector4(1f, 1f, 1f, 1f);
+
+        // Movement
+        public bool bhopEnabled = false;
+        public bool airStrafeEnabled = false;
+        public float airStrafeStrength = 0.5f;
 
         // Menu / splash
         private bool _menuVisible = true;
@@ -114,21 +122,13 @@ namespace WallhackandAimbotCombinedTest
         private IntPtr _overlayHwnd = IntPtr.Zero;
         ImDrawListPtr drawList;
 
-        // Chams bone segments (boneA, boneB, radius scale)
         private static readonly (int A, int B, float R)[] ChamsBones =
         {
-            (0,  5,  1.5f),
-            (5,  6,  1.3f),
-            (5,  8,  0.80f),
-            (8,  9,  0.70f),
-            (9,  11, 0.50f),
-            (5,  16, 0.80f),
-            (16, 14, 0.70f),
-            (14, 17, 0.50f),
-            (0,  23, 0.90f),
-            (23, 24, 0.80f),
-            (0,  26, 0.90f),
-            (26, 27, 0.80f),
+            (0,  5,  1.5f), (5,  6,  1.3f),
+            (5,  8,  0.80f), (8,  9,  0.70f), (9,  11, 0.50f),
+            (5,  16, 0.80f), (16, 14, 0.70f), (14, 17, 0.50f),
+            (0,  23, 0.90f), (23, 24, 0.80f),
+            (0,  26, 0.90f), (26, 27, 0.80f),
         };
 
         public Renderer() { LoadSettings(); }
@@ -167,6 +167,9 @@ namespace WallhackandAimbotCombinedTest
                 aimSmooth = s.AimSmooth;
                 aimSwitchHysteresis = s.AimSwitchHysteresis;
                 aimHumanisation = s.AimHumanisation;
+                bhopEnabled = s.BhopEnabled;
+                airStrafeEnabled = s.AirStrafeEnabled;
+                airStrafeStrength = s.AirStrafeStrength;
             }
             catch { }
         }
@@ -199,6 +202,9 @@ namespace WallhackandAimbotCombinedTest
                     AimSmooth = aimSmooth,
                     AimSwitchHysteresis = aimSwitchHysteresis,
                     AimHumanisation = aimHumanisation,
+                    BhopEnabled = bhopEnabled,
+                    AirStrafeEnabled = airStrafeEnabled,
+                    AirStrafeStrength = airStrafeStrength,
                 };
                 File.WriteAllText(ConfigPath,
                     JsonSerializer.Serialize(s, new JsonSerializerOptions { WriteIndented = true }));
@@ -206,7 +212,7 @@ namespace WallhackandAimbotCombinedTest
             catch { }
         }
 
-        // ── Focus overlay ─────────────────────────────────────────────────
+        // ── Focus ─────────────────────────────────────────────────────────
         private IntPtr GetOverlayHwnd()
         {
             if (_overlayHwnd != IntPtr.Zero) return _overlayHwnd;
@@ -238,7 +244,7 @@ namespace WallhackandAimbotCombinedTest
             ShowCursor(true);
         }
 
-        // ── Main render ───────────────────────────────────────────────────
+        // ── Render ────────────────────────────────────────────────────────
         protected override void Render()
         {
             screenSize = ImGui.GetIO().DisplaySize;
@@ -283,7 +289,6 @@ namespace WallhackandAimbotCombinedTest
                 if (enableChams)
                 {
                     ImGui.SliderFloat("Limb thickness", ref chamsThickness, 4f, 28f);
-                    ImGui.SetItemTooltip("Radius of each limb capsule");
                     ImGui.SliderFloat("Opacity", ref chamsAlpha, 0.1f, 1.0f);
                     ImGui.Spacing();
                     if (ImGui.CollapsingHeader("  Chams enemy colour"))
@@ -314,7 +319,7 @@ namespace WallhackandAimbotCombinedTest
                 ImGui.Checkbox("Enable aimbot", ref aimbot);
                 ImGui.Checkbox("Aim on teammates", ref aimOnTeam);
                 ImGui.Checkbox("Visible targets only", ref aimVisibleOnly);
-                ImGui.SetItemTooltip("Only aim at targets whose head is on screen");
+                ImGui.SetItemTooltip("Uses the game's own spotted state — only\naims at enemies the game says you can see");
                 ImGui.Checkbox("Prioritise closest by distance", ref aimTargetClosestDistance);
                 ImGui.SetItemTooltip("ON  = locks nearest player in world space\nOFF = locks nearest to crosshair");
 
@@ -325,19 +330,13 @@ namespace WallhackandAimbotCombinedTest
                 ImGui.SliderFloat("Smoothing", ref aimSmooth, 0.05f, 1f);
                 ImGui.SetItemTooltip("Lower = smoother aim movement");
                 ImGui.SliderFloat("Target steal threshold", ref aimSwitchHysteresis, 5f, 120f);
-                ImGui.SetItemTooltip("How many px closer a new target must be to steal lock");
 
                 ImGui.Spacing();
                 ImGui.Text("Humanisation");
                 ImGui.Separator(); ImGui.Spacing();
                 ImGui.SliderFloat("Humanisation", ref aimHumanisation, 0f, 1f);
-                ImGui.SetItemTooltip(
-                    "0 = perfectly mechanical\n" +
-                    "0.3 = slight speed variation + occasional micro-miss\n" +
-                    "0.7 = noticeable jitter, misses more often\n" +
-                    "1.0 = very erratic, frequently undershoots");
+                ImGui.SetItemTooltip("Adds speed variation and micro-misses\nwhile tracking. Locks clean once on target.");
 
-                // Live preview label so user knows what level they're at
                 string humanLabel = aimHumanisation switch
                 {
                     < 0.01f => "Off",
@@ -356,16 +355,46 @@ namespace WallhackandAimbotCombinedTest
                 if (ImGui.Button("Save##aim")) SaveSettings();
                 ImGui.End();
 
+                // ── Movement window ───────────────────────────────────────
+                ImGui.SetNextWindowSize(new Vector2(275, 0), ImGuiCond.FirstUseEver);
+                ImGui.Begin("  Movement");
+
+                ImGui.Spacing();
+                ImGui.Text("Bunnyhop");
+                ImGui.Separator(); ImGui.Spacing();
+                ImGui.Checkbox("Enable bunnyhop", ref bhopEnabled);
+                ImGui.SetItemTooltip(
+                    "Hold Space to auto-jump the instant you land.\n" +
+                    "Uses dwForceJump — works in private/offline only.");
+                ImGui.Spacing();
+
+                ImGui.Text("Air Strafe");
+                ImGui.Separator(); ImGui.Spacing();
+                ImGui.Checkbox("Enable air strafe", ref airStrafeEnabled);
+                ImGui.SetItemTooltip(
+                    "Automatically nudges your view angle while airborne\n" +
+                    "to gain speed through strafing. Works best combined\n" +
+                    "with bunnyhop. Private/offline only.");
+                if (airStrafeEnabled)
+                {
+                    ImGui.SliderFloat("Strafe strength", ref airStrafeStrength, 0.1f, 2.0f);
+                    ImGui.SetItemTooltip(
+                        "How aggressively the yaw is nudged each frame.\n" +
+                        "0.3-0.7 feels natural, higher is more aggressive.");
+                }
+
+                ImGui.Spacing();
+                if (ImGui.Button("Save##mov")) SaveSettings();
+                ImGui.End();
+
                 _focusNextFrame = false;
             }
 
             // ── Foreground draws ──────────────────────────────────────────
             drawList = ImGui.GetForegroundDrawList();
-
             drawList.AddCircle(
                 new Vector2(screenSize.X / 2, screenSize.Y / 2),
                 FOV, ImGui.ColorConvertFloat4ToU32(circleColor));
-
             DrawWatermark();
 
             if (enableESP)
@@ -383,7 +412,7 @@ namespace WallhackandAimbotCombinedTest
             }
         }
 
-        // ── Chams — 3-pass depth-shaded capsules ──────────────────────────
+        // ── Chams ─────────────────────────────────────────────────────────
         private void DrawChams(Entity entity)
         {
             if (entity.bones2d == null || entity.bones2d.Count < 2) return;
@@ -391,26 +420,10 @@ namespace WallhackandAimbotCombinedTest
             bool isTeam = localPlayer.team == entity.team;
             Vector4 baseCol = isTeam ? chamsTeamColor : chamsEnemyColor;
 
-            Vector4 shadowCol = new Vector4(
-                baseCol.X * 0.15f, baseCol.Y * 0.15f, baseCol.Z * 0.15f,
-                baseCol.W * chamsAlpha * 0.75f);
-            Vector4 fillCol = new Vector4(
-                baseCol.X, baseCol.Y, baseCol.Z, baseCol.W * chamsAlpha);
-            Vector4 highlightCol = new Vector4(
-                Math.Min(1f, baseCol.X * 1.6f + 0.3f),
-                Math.Min(1f, baseCol.Y * 1.6f + 0.3f),
-                Math.Min(1f, baseCol.Z * 1.6f + 0.3f),
-                baseCol.W * chamsAlpha * 0.65f);
-            Vector4 rimCol = new Vector4(
-                Math.Min(1f, baseCol.X + 0.35f),
-                Math.Min(1f, baseCol.Y + 0.35f),
-                Math.Min(1f, baseCol.Z + 0.35f),
-                Math.Min(1f, baseCol.W * (chamsAlpha + 0.2f)));
-
-            uint uShadow = ImGui.ColorConvertFloat4ToU32(shadowCol);
-            uint uFill = ImGui.ColorConvertFloat4ToU32(fillCol);
-            uint uHighlight = ImGui.ColorConvertFloat4ToU32(highlightCol);
-            uint uRim = ImGui.ColorConvertFloat4ToU32(rimCol);
+            uint uShadow = ImGui.ColorConvertFloat4ToU32(new Vector4(baseCol.X * 0.15f, baseCol.Y * 0.15f, baseCol.Z * 0.15f, baseCol.W * chamsAlpha * 0.75f));
+            uint uFill = ImGui.ColorConvertFloat4ToU32(new Vector4(baseCol.X, baseCol.Y, baseCol.Z, baseCol.W * chamsAlpha));
+            uint uHighlight = ImGui.ColorConvertFloat4ToU32(new Vector4(Math.Min(1f, baseCol.X * 1.6f + 0.3f), Math.Min(1f, baseCol.Y * 1.6f + 0.3f), Math.Min(1f, baseCol.Z * 1.6f + 0.3f), baseCol.W * chamsAlpha * 0.65f));
+            uint uRim = ImGui.ColorConvertFloat4ToU32(new Vector4(Math.Min(1f, baseCol.X + 0.35f), Math.Min(1f, baseCol.Y + 0.35f), Math.Min(1f, baseCol.Z + 0.35f), Math.Min(1f, baseCol.W * (chamsAlpha + 0.2f))));
 
             float distScale = Math.Clamp(1f - entity.distance / 3500f, 0.25f, 1f);
             float baseR = chamsThickness * distScale;
@@ -418,31 +431,25 @@ namespace WallhackandAimbotCombinedTest
             foreach (var (a, b, rScale) in ChamsBones)
             {
                 if (!BoneOk(entity.bones2d, a) || !BoneOk(entity.bones2d, b)) continue;
-                Vector2 pA = entity.bones2d[a];
-                Vector2 pB = entity.bones2d[b];
+                Vector2 pA = entity.bones2d[a], pB = entity.bones2d[b];
                 if (!OnScreen(pA) || !OnScreen(pB)) continue;
-
                 float r = baseR * rScale;
-
                 DrawCapsuleFilled(pA, pB, r * 1.35f, uShadow);
                 DrawCapsuleFilled(pA, pB, r, uFill);
-
-                Vector2 lightOff = Vector2.Normalize(new Vector2(-1f, -1f)) * (r * 0.35f);
-                DrawCapsuleFilled(pA + lightOff, pB + lightOff, r * 0.38f, uHighlight);
-
+                Vector2 lo = Vector2.Normalize(new Vector2(-1f, -1f)) * (r * 0.35f);
+                DrawCapsuleFilled(pA + lo, pB + lo, r * 0.38f, uHighlight);
                 drawList.AddCircle(pA, r, uRim, 0, 1.5f);
                 drawList.AddCircle(pB, r, uRim, 0, 1.5f);
             }
 
-            Vector2 headPos = BoneOk(entity.bones2d, 6) ? entity.bones2d[6] : entity.head2d;
-            if (OnScreen(headPos))
+            Vector2 hp = BoneOk(entity.bones2d, 6) ? entity.bones2d[6] : entity.head2d;
+            if (OnScreen(hp))
             {
-                float headR = baseR * 1.6f;
-                drawList.AddCircleFilled(headPos, headR * 1.3f, uShadow);
-                drawList.AddCircleFilled(headPos, headR, uFill);
-                Vector2 specOff = new Vector2(-headR * 0.3f, -headR * 0.3f);
-                drawList.AddCircleFilled(headPos + specOff, headR * 0.42f, uHighlight);
-                drawList.AddCircle(headPos, headR, uRim, 0, 1.8f);
+                float hr = baseR * 1.6f;
+                drawList.AddCircleFilled(hp, hr * 1.3f, uShadow);
+                drawList.AddCircleFilled(hp, hr, uFill);
+                drawList.AddCircleFilled(hp + new Vector2(-hr * 0.3f, -hr * 0.3f), hr * 0.42f, uHighlight);
+                drawList.AddCircle(hp, hr, uRim, 0, 1.8f);
             }
         }
 
@@ -454,10 +461,8 @@ namespace WallhackandAimbotCombinedTest
             float len = dir.Length();
             if (len < 0.001f) return;
             Vector2 perp = new Vector2(-dir.Y, dir.X) / len;
-            Vector2 p0 = a + perp * r, p1 = a - perp * r;
-            Vector2 p2 = b - perp * r, p3 = b + perp * r;
-            drawList.AddTriangleFilled(p0, p1, p2, col);
-            drawList.AddTriangleFilled(p0, p2, p3, col);
+            drawList.AddTriangleFilled(a + perp * r, a - perp * r, b - perp * r, col);
+            drawList.AddTriangleFilled(a + perp * r, b - perp * r, b + perp * r, col);
         }
 
         private bool OnScreen(Vector2 p) =>
@@ -467,40 +472,23 @@ namespace WallhackandAimbotCombinedTest
         private void DrawSplash(float alpha)
         {
             var dl = ImGui.GetForegroundDrawList();
-            Vector2 center = new Vector2(screenSize.X / 2f, screenSize.Y / 2f);
-
-            dl.AddRectFilled(Vector2.Zero, screenSize,
-                ImGui.ColorConvertFloat4ToU32(new Vector4(0.04f, 0f, 0.08f, alpha * 0.97f)));
-            dl.AddCircleFilled(center, 160f,
-                ImGui.ColorConvertFloat4ToU32(new Vector4(0.55f, 0.10f, 0.85f, alpha * 0.18f)));
-            dl.AddCircleFilled(center, 110f,
-                ImGui.ColorConvertFloat4ToU32(new Vector4(0.40f, 0.05f, 0.65f, alpha * 0.22f)));
-
+            Vector2 ct = new Vector2(screenSize.X / 2f, screenSize.Y / 2f);
+            dl.AddRectFilled(Vector2.Zero, screenSize, ImGui.ColorConvertFloat4ToU32(new Vector4(0.04f, 0f, 0.08f, alpha * 0.97f)));
+            dl.AddCircleFilled(ct, 160f, ImGui.ColorConvertFloat4ToU32(new Vector4(0.55f, 0.10f, 0.85f, alpha * 0.18f)));
+            dl.AddCircleFilled(ct, 110f, ImGui.ColorConvertFloat4ToU32(new Vector4(0.40f, 0.05f, 0.65f, alpha * 0.22f)));
             uint lc = ImGui.ColorConvertFloat4ToU32(new Vector4(0.60f, 0.15f, 0.90f, alpha * 0.55f));
-            dl.AddLine(new Vector2(center.X - 220f, center.Y - 48f),
-                       new Vector2(center.X + 220f, center.Y - 48f), lc, 1.2f);
-            dl.AddLine(new Vector2(center.X - 220f, center.Y + 52f),
-                       new Vector2(center.X + 220f, center.Y + 52f), lc, 1.2f);
-
+            dl.AddLine(new Vector2(ct.X - 220f, ct.Y - 48f), new Vector2(ct.X + 220f, ct.Y - 48f), lc, 1.2f);
+            dl.AddLine(new Vector2(ct.X - 220f, ct.Y + 52f), new Vector2(ct.X + 220f, ct.Y + 52f), lc, 1.2f);
             const float ts = 3.8f; const string title = "y018client";
             Vector2 tsz = ImGui.CalcTextSize(title) * ts;
-            dl.AddText(ImGui.GetFont(), ImGui.GetFontSize() * ts,
-                center - tsz / 2f + new Vector2(3f, 3f),
-                ImGui.ColorConvertFloat4ToU32(new Vector4(0.25f, 0f, 0.40f, alpha * 0.80f)), title);
-            dl.AddText(ImGui.GetFont(), ImGui.GetFontSize() * ts,
-                center - tsz / 2f,
-                ImGui.ColorConvertFloat4ToU32(new Vector4(0.88f, 0.60f, 1f, alpha)), title);
-
+            dl.AddText(ImGui.GetFont(), ImGui.GetFontSize() * ts, ct - tsz / 2f + new Vector2(3f, 3f), ImGui.ColorConvertFloat4ToU32(new Vector4(0.25f, 0f, 0.40f, alpha * 0.80f)), title);
+            dl.AddText(ImGui.GetFont(), ImGui.GetFontSize() * ts, ct - tsz / 2f, ImGui.ColorConvertFloat4ToU32(new Vector4(0.88f, 0.60f, 1f, alpha)), title);
             const float ss = 1.4f; const string sub = "version 1.0";
             Vector2 ssz = ImGui.CalcTextSize(sub) * ss;
-            dl.AddText(ImGui.GetFont(), ImGui.GetFontSize() * ss,
-                new Vector2(center.X - ssz.X / 2f, center.Y + tsz.Y / 2f + 12f),
-                ImGui.ColorConvertFloat4ToU32(new Vector4(0.70f, 0.40f, 0.95f, alpha * 0.85f)), sub);
-
+            dl.AddText(ImGui.GetFont(), ImGui.GetFontSize() * ss, new Vector2(ct.X - ssz.X / 2f, ct.Y + tsz.Y / 2f + 12f), ImGui.ColorConvertFloat4ToU32(new Vector4(0.70f, 0.40f, 0.95f, alpha * 0.85f)), sub);
             string dots = new string('.', (int)(_splashTimer.Elapsed.TotalSeconds * 2.5) % 4);
             Vector2 dsz = ImGui.CalcTextSize(dots);
-            dl.AddText(new Vector2(center.X - dsz.X / 2f, center.Y + tsz.Y / 2f + 46f),
-                ImGui.ColorConvertFloat4ToU32(new Vector4(0.60f, 0.30f, 0.80f, alpha * 0.70f)), dots);
+            dl.AddText(new Vector2(ct.X - dsz.X / 2f, ct.Y + tsz.Y / 2f + 46f), ImGui.ColorConvertFloat4ToU32(new Vector4(0.60f, 0.30f, 0.80f, alpha * 0.70f)), dots);
         }
 
         // ── Watermark ─────────────────────────────────────────────────────
@@ -510,8 +498,7 @@ namespace WallhackandAimbotCombinedTest
             uint tCol = ImGui.ColorConvertFloat4ToU32(new Vector4(0.78f, 0.30f, 1.00f, 1.00f));
             uint bgCol = ImGui.ColorConvertFloat4ToU32(new Vector4(0.08f, 0.02f, 0.14f, 0.80f));
             uint bCol = ImGui.ColorConvertFloat4ToU32(new Vector4(0.55f, 0.15f, 0.80f, 0.90f));
-            Vector2 pad = new Vector2(8f, 4f);
-            Vector2 pos = new Vector2(10f, 10f);
+            Vector2 pad = new Vector2(8f, 4f), pos = new Vector2(10f, 10f);
             Vector2 sz = ImGui.CalcTextSize(text);
             drawList.AddRectFilled(pos - pad, pos + sz + pad, bgCol, 5f);
             drawList.AddRect(pos - pad, pos + sz + pad, bCol, 5f, ImDrawFlags.None, 1.5f);
@@ -573,7 +560,6 @@ namespace WallhackandAimbotCombinedTest
         }
 
         // ── ESP helpers ───────────────────────────────────────────────────
-
         bool EntityOnScreen(Entity entity)
         {
             Vector2 p = entity.position2D, h = entity.head2d;
@@ -653,9 +639,7 @@ namespace WallhackandAimbotCombinedTest
         private void DrawLine(Entity entity)
         {
             Vector4 col = localPlayer.team == entity.team ? teamColor : enemyColor;
-            drawList.AddLine(
-                new Vector2(screenSize.X / 2, screenSize.Y),
-                entity.position2D,
+            drawList.AddLine(new Vector2(screenSize.X / 2, screenSize.Y), entity.position2D,
                 ImGui.ColorConvertFloat4ToU32(col));
         }
 
